@@ -1,0 +1,50 @@
+# Virtual Envs & Cache
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# IDEs
+.idea/
+.vscode/
+
+# Environment & Logs
+.env
+.env.*
+*.log
+
+# Node/Frontend
+node_modules/
+dist/
+.expo/
+web-build/
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.tsbuildinfo
+
+# Local State & Secrets
+history.json
+_token.json
+savepoint.json
+report.json
+.cache/
+
+# OS specific
+.DS_Store
+*.pem
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# generated native folders
+ResearchMateAI/ios/
+ResearchMateAI/android/

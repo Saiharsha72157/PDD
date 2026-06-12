@@ -1,0 +1,260 @@
+================================================================================
+  BACKEND ERRORS LOG — ResearchMateAI / PDD Project
+  Generated : 2026-06-11
+  Tool used : npx pyright v1.1.410 (same engine VS Code uses)
+  Scanned   : d:\dummy21\PDD\Backend\
+================================================================================
+
+DIAGNOSTIC SUMMARY
+------------------
+  Files analysed  : 37
+  Total errors    : 36
+  Errors in your SOURCE files  :  3   ← These are the REAL errors you own
+  Errors in tests/generate_excel.py : 33  ← Likely not open in editor but
+                                            counted by Pyright workspace scan
+  Warnings        :  0
+
+
+NOTE ON "8 ERRORS" IN VS CODE
+------------------------------
+VS Code's Problems panel shows errors across ALL files in the workspace that
+Pyright is aware of.  The 8 squiggles you see are distributed across:
+  • main.py         (1 type-mismatch error)
+  • services/auth.py (2 type/API errors)
+  • tests/generate_excel.py (33 openpyxl typing errors — the bulk of count)
+
+The number you see depends on which files are open and how VS Code groups them.
+
+================================================================================
+  SECTION 1 — ERRORS IN PRODUCTION SOURCE FILES  (3 errors)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ERROR #1
+  File    : d:\dummy21\PDD\Backend\main.py
+  Line    : 61
+  Severity: ERROR
+  Rule    : (type assignability / Starlette typing)
+
+  Message :
+    Argument of type "(request: Request[State], exc: RateLimitExceeded) -> Response"
+    cannot be assigned to parameter "handler" of type "ExceptionHandler" in
+    function "add_exception_handler".
+    Type "(request: Request[State], exc: RateLimitExceeded) -> Response" is not
+    assignable to type "ExceptionHandler".
+
+  Code causing the error (main.py line 61):
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+  ROOT CAUSE:
+    This is a PYRIGHT TYPE-STUB MISMATCH — NOT a real runtime bug.
+    SlowAPI's _rate_limit_exceeded_handler has a more specific signature than
+    Starlette's generic ExceptionHandler type expects.  At runtime this works
+    perfectly fine (SlowAPI is designed to use it exactly this way).
+    Pyright's strict type stubs for Starlette (starlette-stubs or the bundled
+    stubs in Pylance v1.1.400+) became stricter about ExceptionHandler parameter
+    types.  This is a known upstream incompatibility between SlowAPI and
+    Starlette stubs.
+
+  FIX OPTIONS (pick one):
+    Option A (Recommended — suppress the false-positive):
+      Change line 61 to:
+        app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+
+    Option B (Cast to Any):
+      from typing import Any
+      app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
+
+    Option C (Suppress in pyrightconfig.json):
+      Add "reportArgumentType": "none" under "reportingRules" — not recommended
+      as it silences other real errors of the same type.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ERROR #2
+  File    : d:\dummy21\PDD\Backend\services\auth.py
+  Line    : 36
+  Severity: ERROR
+  Rule    : reportReturnType
+
+  Message :
+    Type "dict[Unknown, Unknown] | None" is not assignable to return type
+    "dict[Unknown, Unknown]".
+      "None" is not assignable to "dict[Unknown, Unknown]"
+
+  Code causing the error (auth.py lines 25-39):
+    def _fetch_jwks() -> dict:
+        global _jwks_cache
+        if _jwks_cache:
+            return _jwks_cache          ← Line 29: fine
+        jwks_url = ...
+        try:
+            ...
+            return _jwks_cache          ← Line 34-36: _jwks_cache is Optional[dict]
+                                           so Pyright sees it as dict | None
+        except Exception as e:
+            return {}
+
+  ROOT CAUSE:
+    The function declares return type -> dict but _jwks_cache is typed as
+    Optional[dict] (= dict | None).  After the assignment `_jwks_cache = resp.json()`
+    Pyright still treats _jwks_cache as Optional[dict] because it was declared
+    globally as Optional[dict].  So `return _jwks_cache` on line 36 is flagged
+    as returning dict | None when dict is expected.
+
+  FIX (change line 34-36 area in auth.py):
+    After the assignment, return the local value instead of the global:
+      _jwks_cache = resp.json()
+      logger.info("...")
+      return _jwks_cache     # Pyright still sees dict | None here
+
+    Best fix — assert non-None or cast:
+      data = resp.json()
+      _jwks_cache = data
+      return data            # 'data' is inferred as dict, no Optional ambiguity
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ERROR #3
+  File    : d:\dummy21\PDD\Backend\services\auth.py
+  Line    : 102
+  Severity: ERROR
+  Rule    : reportAttributeAccessIssue
+
+  Message :
+    "algorithms" is not a known attribute of module "jwt"
+
+  Code causing the error (auth.py line 102):
+    public_key = jwt.algorithms.ECAlgorithm.from_jwk(json.dumps(jwk))
+
+  ROOT CAUSE:
+    This is a PYRIGHT STUB GAP — NOT a real runtime bug.
+    The installed package is PyJWT v2.13.0.  The jwt.algorithms submodule
+    DOES exist at runtime (verified: 'algorithms' appears in dir(jwt)).
+    However, PyJWT's bundled type stubs (or the stubs from python-stubs) do
+    not export `algorithms` as a typed attribute on the top-level `jwt` module.
+    Pyright cannot see it through its static analysis of the stub file.
+
+  FIX OPTIONS (pick one):
+    Option A (Recommended — explicit submodule import):
+      Replace line 102 with:
+        from jwt import algorithms as jwt_algorithms
+        public_key = jwt_algorithms.ECAlgorithm.from_jwk(json.dumps(jwk))
+      Add this import at the top of auth.py (line ~7 area).
+
+    Option B (Suppress the squiggle inline):
+      public_key = jwt.algorithms.ECAlgorithm.from_jwk(json.dumps(jwk))  # type: ignore[attr-defined]
+
+    Option C (Use PyJWKClient instead — cleaner approach for PyJWT v2):
+      PyJWT v2 has a built-in PyJWKClient that handles JWKS fetching natively.
+      This would eliminate both the stub issue and the manual JWKS handling code.
+
+
+================================================================================
+  SECTION 2 — ERRORS IN TEST FILE  (33 errors, tests/generate_excel.py)
+================================================================================
+
+  File    : d:\dummy21\PDD\Backend\tests\generate_excel.py
+  Count   : 33 errors (ALL in this one file)
+  Rule    : reportIndexIssue, reportAttributeAccessIssue
+
+  Summary of errors:
+    All 33 errors relate to openpyxl's WriteOnlyWorksheet type.
+    The test file uses wb.create_sheet() which returns WriteOnlyWorksheet
+    when write_only=True is set on the workbook, but the code then tries to
+    access attributes like .cell(), .row_dimensions, .value, .font, .fill,
+    .alignment, .border — which are NOT available on WriteOnlyWorksheet
+    (only on the standard Worksheet type).
+
+  Affected lines (sample):
+    Line 333  : ws[row]                    → "__getitem__" not defined on WriteOnlyWorksheet
+    Line 334  : cell.value = ...           → "value" attribute unknown
+    Line 335  : cell.font = ...            → "font" attribute unknown
+    Line 336  : cell.fill = ...            → "fill" attribute unknown
+    Line 337  : cell.alignment = ...       → "alignment" attribute unknown
+    Line 338  : ws.row_dimensions[...] =   → "row_dimensions" unknown
+    Line 341  : ws.cell(...)               → "cell" unknown on WriteOnlyWorksheet
+    Line 347  : ws.row_dimensions[...]     → "row_dimensions" unknown
+    Line 384  : ws.cell(...)               → "cell" unknown
+    Line 404  : ws.row_dimensions[...]     → "row_dimensions" unknown
+    (... 23 more of the same pattern)
+
+  ROOT CAUSE:
+    This IS a real code bug in the test file.  The test creates a workbook
+    in write-only mode but then tries to use full Worksheet API calls.
+    However, this is a test utility script — it does NOT affect the FastAPI
+    server's operation at all.
+
+  FIX: Change the workbook creation to NOT use write_only mode, OR change
+    the variable type annotation to Worksheet instead of WriteOnlyWorksheet.
+
+
+================================================================================
+  SECTION 3 — CONFIGURATION ANALYSIS
+================================================================================
+
+  venv Python    : d:\dummy21\PDD\Backend\venv\Scripts\python.exe  ✓ EXISTS
+  PyJWT          : 2.13.0  ✓ INSTALLED
+  FastAPI        : ✓ INSTALLED
+  slowapi        : ✓ INSTALLED
+  matplotlib     : ✓ INSTALLED
+  groq           : ✓ INSTALLED
+  pandas / numpy : ✓ INSTALLED
+  httpx          : ✓ INSTALLED
+  python-dotenv  : ✓ INSTALLED
+  requests       : ✓ INSTALLED
+
+  pyrightconfig.json location : d:\dummy21\PDD\pyrightconfig.json
+    venvPath   = d:\dummy21\PDD\Backend
+    venv       = venv
+    extraPaths = [Backend, Backend\venv\Lib\site-packages]
+
+  .vscode/settings.json :
+    python.defaultInterpreterPath = d:\dummy21\PDD\Backend\venv\Scripts\python.exe ✓
+
+  VERDICT ON PYRIGHT PATH CONFIGURATION:
+    The path configuration IS correct. Pyright is finding the venv and all
+    dependencies are visible.  The 3 source-file errors are:
+      - 1x real type stub mismatch (SlowAPI + Starlette, harmless at runtime)
+      - 1x real type narrowing issue (Optional[dict] return, easy fix)
+      - 1x type stub gap (jwt.algorithms, easy fix)
+
+    NONE of the 3 source errors are caused by Pyright looking at the wrong
+    path.  They are genuine static-analysis findings that will require small
+    code changes to resolve.
+
+    The remaining 33 errors are all in a test utility file and represent a
+    real openpyxl API misuse that does not affect your server.
+
+
+================================================================================
+  QUICK FIX SUMMARY
+================================================================================
+
+  Priority 1 — auth.py line 102 (jwt.algorithms):
+    Add at top of auth.py (after `import jwt`):
+      from jwt import algorithms as jwt_algorithms
+    Change line 102:
+      public_key = jwt_algorithms.ECAlgorithm.from_jwk(json.dumps(jwk))
+
+  Priority 2 — auth.py line 36 (_fetch_jwks return type):
+    Change lines 33-36 from:
+      _jwks_cache = resp.json()
+      logger.info("...")
+      return _jwks_cache
+    To:
+      data: dict = resp.json()
+      _jwks_cache = data
+      logger.info("...")
+      return data
+
+  Priority 3 — main.py line 61 (SlowAPI type mismatch):
+    Append  # type: ignore[arg-type]  to the line:
+      app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+
+  Priority 4 — tests/generate_excel.py (openpyxl WriteOnlyWorksheet):
+    Open tests/generate_excel.py and remove write_only=True from the
+    workbook creation, or rewrite using standard Worksheet API.
+    (Does NOT block server from running.)
+
+================================================================================
+  END OF REPORT
+================================================================================

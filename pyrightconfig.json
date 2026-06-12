@@ -1,0 +1,18 @@
+{
+    "venvPath": "d:\\dummy21\\PDD\\Backend",
+    "venv": "venv",
+    "pythonPath": "d:\\dummy21\\PDD\\Backend\\venv\\Scripts\\python.exe",
+    "extraPaths": [
+        "d:\\dummy21\\PDD\\Backend",
+        "d:\\dummy21\\PDD\\Backend\\venv\\Lib\\site-packages"
+    ],
+    "executionEnvironments": [
+        {
+            "root": "Backend",
+            "extraPaths": [
+                "d:\\dummy21\\PDD\\Backend",
+                "d:\\dummy21\\PDD\\Backend\\venv\\Lib\\site-packages"
+            ]
+        }
+    ]
+}
