@@ -17,6 +17,7 @@ import { initLanguage } from "./services/localization";
 const linking: any = {
   prefixes: ["https://researchmateai.netlify.app", "researchmateai://", "https://saiharsha72157.github.io/PDD"],
   config: {
+    path: "PDD",
     screens: {
       Language: "language",
       OnboardingOne: "onboarding-1",
