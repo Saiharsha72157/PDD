@@ -18,7 +18,8 @@ __pycache__/
 *.log
 
 # Node/Frontend
-node_modules/
+/node_modules/
+/ResearchMateAI/node_modules/
 dist/
 .expo/
 web-build/
