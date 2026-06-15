@@ -9,7 +9,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "build": "npx expo export --platform web && copy dist\\index.html dist\\404.html",
+    "build": "npx expo export --platform web && copy dist\\index.html dist\\404.html && node fix-fonts.js",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist --nojekyll",
     "login": "mocha selenium-tests/tests/login.test.js"
