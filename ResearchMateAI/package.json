@@ -11,7 +11,7 @@
     "lint": "expo lint",
     "build": "npx expo export --platform web",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist",
+    "deploy": "gh-pages -d dist --nojekyll",
     "login": "mocha selenium-tests/tests/login.test.js"
   },
   "dependencies": {
