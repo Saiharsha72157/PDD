@@ -184,6 +184,8 @@ export default function LoginScreen() {
                     style={styles.icon}
                   />
                   <TextInput
+                    id="email"
+                    testID="email"
                     placeholder={t("email_address_placeholder")}
                     placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
                     value={email}
@@ -211,6 +213,8 @@ export default function LoginScreen() {
                   />
                   <TextInput
                     ref={passwordRef}
+                    id="password"
+                    testID="password"
                     placeholder={t("password_placeholder")}
                     placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
                     value={password}
@@ -234,6 +238,8 @@ export default function LoginScreen() {
                 )}
 
                 <TouchableOpacity
+                  id="login-button"
+                  testID="login-button"
                   style={[styles.button, loading && { opacity: 0.8 }]}
                   onPress={handleLogin}
                   disabled={loading}
