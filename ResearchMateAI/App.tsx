@@ -15,7 +15,7 @@ import { warmUpBackend } from "./services/api";
 import { initLanguage } from "./services/localization";
 
 const linking: any = {
-  prefixes: ["https://researchmateai.netlify.app", "researchmateai://"],
+  prefixes: ["https://researchmateai.netlify.app", "researchmateai://", "https://saiharsha72157.github.io/PDD"],
   config: {
     screens: {
       Language: "language",

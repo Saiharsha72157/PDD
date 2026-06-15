@@ -49,6 +49,9 @@
     },
     "updates": {
       "url": "https://u.expo.dev/a4ee5b33-2d85-47e0-a575-816c2924e874"
+    },
+    "experiments": {
+      "baseUrl": "/PDD"
     }
   }
 }
