@@ -18,14 +18,8 @@ from typing import Optional
 from dotenv import load_dotenv
 from services.auth import get_current_user, get_optional_current_user
 from core.ratelimit import limiter
-from core.groq_utils import get_groq_clients, execute_with_groq_fallback
-
-load_dotenv()
-
-# Initialize Groq clients locally to avoid circular imports
-groq_clients = get_groq_clients(3, 4)
-if not groq_clients:
-    print("[Backend] Groq API Initialization Warning in paraphrase router: No keys (3 or 4) found.")
+from core.groq_utils import get_groq_clients
+from core.groq_manager import manager as groq_manager
 
 
 class ParaphraseRequest(BaseModel):
@@ -35,7 +29,7 @@ class ParaphraseRequest(BaseModel):
 
 @router.post("/paraphrase")
 @limiter.limit("60/minute")
-def paraphrase_text(request: Request, data: ParaphraseRequest, current_user: dict = Depends(get_optional_current_user)):
+async def paraphrase_text(request: Request, data: ParaphraseRequest, current_user: dict = Depends(get_optional_current_user)):
     # Trim and validate input text
     text = data.text.strip()
     if not text:
@@ -119,8 +113,7 @@ JSON Schema:
 "hallucinationDetected": true/false
 }}"""
 
-            response = execute_with_groq_fallback(
-                clients=groq_clients,
+            response = await groq_manager.execute(
                 model="llama-3.1-8b-instant",
                 messages=[
                     {"role": "system", "content": system_prompt.strip()},
@@ -173,7 +166,7 @@ JSON Schema:
         else:
             # Generate candidates, evaluate them, and select the highest scoring output
             clean_text = ranker.preprocessor.sanitize_text(text)
-            res_dict = ranker.generator.paraphrase_text(clean_text, mode=mode)
+            res_dict = await ranker.generator.paraphrase_text(clean_text, mode=mode)
             result = Humanizer.humanize(res_dict["paraphrasedText"])
             
             semantic_similarity = res_dict["semanticSimilarity"]
@@ -223,8 +216,8 @@ JSON Schema:
             "hallucinationDetected": hallucination_detected
         }
     except Exception as e:
-        print(f"[Backend] Local Paraphrasing error: {e}")
-        raise HTTPException(status_code=503, detail=f"Paraphrasing failed: {str(e)}")
+        print(f"Error during paraphrase via Manager: {e}")
+        raise HTTPException(status_code=503, detail="Failed to paraphrase text via AI.")
 
 @router.get("/paraphrase/history")
 def get_paraphrase_history(current_user: dict = Depends(get_current_user)):

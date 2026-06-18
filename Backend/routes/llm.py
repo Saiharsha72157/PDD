@@ -4,15 +4,11 @@ from typing import Dict, Any
 import re
 import logging
 
-from core.groq_utils import get_groq_clients, execute_with_groq_fallback
+from core.groq_manager import manager as groq_manager
 from services.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-groq_clients = get_groq_clients(1, 2, 3, 4, 5, 6)
-if not groq_clients:
-    logger.warning("No Groq API keys (1-6) found in environment variables.")
 
 class ResearchRequest(BaseModel):
     department: str
@@ -29,7 +25,7 @@ class LiteratureReviewRequest(BaseModel):
     abstracts_text: str
 
 @router.post("/generate-titles")
-def generate_titles(data: ResearchRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+async def generate_titles(data: ResearchRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     # Input validation — prevent prompt injection via department / domain fields
     if not re.match(r'^[a-zA-Z0-9 \-\.&]{1,100}$', data.department.strip()):
         raise HTTPException(status_code=400, detail="Invalid department format. Use letters, numbers, spaces, hyphens, or dots (max 100 chars).")
@@ -160,7 +156,7 @@ def generate_titles(data: ResearchRequest, current_user: Dict[str, Any] = Depend
         ]
         return fallbacks.get(dom, default_projects)
 
-    if not groq_clients:
+    if not groq_manager.keys:
         print("[Backend] Groq not configured, returning mock projects.")
         return {"projects": get_fallback_projects(data.department, data.domain)}
     
@@ -205,8 +201,7 @@ def generate_titles(data: ResearchRequest, current_user: Dict[str, Any] = Depend
         """
 
         try:
-            response = execute_with_groq_fallback(
-                clients=groq_clients,
+            response = await groq_manager.execute(
                 model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"}
@@ -247,36 +242,31 @@ def generate_titles(data: ResearchRequest, current_user: Dict[str, Any] = Depend
                 })
 
         if not clean_projects:
-            raise ValueError("No valid projects generated")
+            raise HTTPException(status_code=503, detail="No valid projects generated")
 
         return {
             "projects": clean_projects
         }
     except Exception as e:
-        print(f"[Backend] Error generating titles: {e}, falling back to mock projects.")
-        return {"projects": get_fallback_projects(data.department, data.domain)}
+        logger.error(f"[Backend] Groq API failed for title generation: {e}")
+        raise HTTPException(status_code=503, detail="Failed to generate titles via AI.")
 
 @router.post("/generate-summary")
-def generate_summary(data: SummaryRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
-    if not groq_clients:
-        raise HTTPException(status_code=503, detail="Groq API is not configured on the backend.")
+async def generate_summary(data: SummaryRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     prompt = f"You are an expert academic researcher. Summarize the following research abstract in a {data.mode} format. \n\nAbstract: {data.abstract}"
     try:
-        response = execute_with_groq_fallback(
-            clients=groq_clients,
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "text"}
-        )
+        response = await groq_manager.execute(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "text"}
+            )
         return {"text": response.choices[0].message.content or "No response generated."}
     except Exception as e:
         logger.error(f"[Backend] Groq summary error: {e}")
         raise HTTPException(status_code=503, detail="Failed to generate summary.")
 
 @router.post("/generate-insights")
-def generate_insights(data: InsightsRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
-    if not groq_clients:
-        raise HTTPException(status_code=503, detail="Groq API is not configured on the backend.")
+async def generate_insights(data: InsightsRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     prompt = f"""Analyze the following research text and extract key insights. Return ONLY a valid JSON object matching exactly this structure (no markdown, no quotes):
   {{
     "findings": ["finding 1", "finding 2"],
@@ -286,12 +276,11 @@ def generate_insights(data: InsightsRequest, current_user: Dict[str, Any] = Depe
   
   Text: {data.text}"""
     try:
-        response = execute_with_groq_fallback(
-            clients=groq_clients,
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
+        response = await groq_manager.execute(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
         import json
         text = response.choices[0].message.content
         try:
@@ -305,17 +294,14 @@ def generate_insights(data: InsightsRequest, current_user: Dict[str, Any] = Depe
         raise HTTPException(status_code=503, detail="Failed to generate insights.")
 
 @router.post("/generate-literature-review")
-def generate_literature_review(data: LiteratureReviewRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
-    if not groq_clients:
-        raise HTTPException(status_code=503, detail="Groq API is not configured on the backend.")
+async def generate_literature_review(data: LiteratureReviewRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     prompt = f"Act as an expert academic researcher. Write a concise literature review based on the following papers:\n\n{data.abstracts_text}\n\nInclude a synthesis of their common themes, methodologies, and identify any potential research gaps."
     try:
-        response = execute_with_groq_fallback(
-            clients=groq_clients,
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "text"}
-        )
+        response = await groq_manager.execute(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "text"}
+            )
         return {"text": response.choices[0].message.content or "No response generated."}
     except Exception as e:
         logger.error(f"[Backend] Groq lit review error: {e}")

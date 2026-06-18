@@ -3,9 +3,10 @@
 import re
 import json
 import time
+import asyncio
 from typing import Dict, Any
 
-from core.groq_utils import get_groq_clients, execute_with_groq_fallback
+from core.groq_manager import manager as groq_manager
 from paraphraser.preprocess import Preprocessor
 from paraphraser.semantic_engine import SemanticEngine
 from paraphraser.grammar_engine import GrammarEngine
@@ -28,13 +29,6 @@ class ParaphraseEngine:
         self.semantic_engine = SemanticEngine()
         self.grammar_engine = GrammarEngine()
         self.writing_analyzer = WritingAnalyzer()
-
-        # Use centralized Groq client pool (keys 3 & 4 are reserved for the paraphrase engine)
-        self.groq_clients = get_groq_clients(3, 4)
-        if self.groq_clients:
-            print(f"[ParaphraseEngine] {len(self.groq_clients)} Groq client(s) initialised for high availability.")
-        else:
-            print("[ParaphraseEngine] Warning: No Groq API keys (3 or 4) found — offline mode active.")
 
         # Style guidelines mapping to specific writing modes
         self.mode_guidelines = {
@@ -73,9 +67,9 @@ class ParaphraseEngine:
             )
         }
 
-    def _call_groq_llama(self, text: str, mode: str, temperature: float = 0.5, feedback_prompt: str = "") -> str:
+    async def _call_groq_llama(self, text: str, mode: str, temperature: float = 0.5, feedback_prompt: str = "") -> str:
         """Executes the AI Paraphraser utilizing the Groq Llama 3.1 8B Model."""
-        if not getattr(self, "groq_clients", None):
+        if not groq_manager.keys:
             raise ValueError("Groq clients not initialized. Check GROQ_API_KEY.")
 
         mode_key = mode.lower().strip()
@@ -153,8 +147,7 @@ JSON Schema:
             user_content = f"{text}\n\n[RETRY FEEDBACK]:\n{feedback_prompt}"
 
         try:
-            response = execute_with_groq_fallback(
-                clients=self.groq_clients,
+            response = await groq_manager.execute(
                 model="llama-3.1-8b-instant",
                 messages=[
                     {"role": "system", "content": system_prompt.strip()},
@@ -292,7 +285,7 @@ JSON Schema:
             "issues": issues
         }
 
-    def paraphrase_text(self, text: str, mode: str) -> Dict[str, Any]:
+    async def paraphrase_text(self, text: str, mode: str) -> Dict[str, Any]:
         """Main entrypoint initiating the full contextual rewriter with auto-regeneration retry loop."""
         start_time = time.time()
         trimmed = text.strip()
@@ -312,46 +305,20 @@ JSON Schema:
                 "processingTime": 0.0
             }
 
-        # Safe local fallback triggers if Groq client is not active
-        if not getattr(self, "groq_clients", None):
-            print("[ParaphraseEngine] Groq API client inactive. Engaging fail-safe dynamic offline generator.")
-            # Standard local segmentation & grammar polishing fallback (No hardcoded synonym substitutions)
-            sentences = self.preprocessor.segment_sentences(trimmed)
-            polished_sentences = []
-            for s in sentences:
-                corrected = self.grammar_engine.correct_grammar(s)
-                polished_sentences.append(corrected)
-            result = " ".join(polished_sentences).strip()
-            
-            # Recalculate local scores
-            local_val = self._programmatic_post_validation(trimmed, result)
-            elapsed = time.time() - start_time
-            
-            return {
-                "paraphrasedText": result,
-                "semanticSimilarity": f"{round(local_val['semanticSimilarity'] * 100)}%",
-                "grammarScore": f"{round(local_val['grammarScore'] * 100)}%",
-                "readabilityScore": local_val["readabilityScore"],
-                "meaningPreserved": local_val["meaningPreserved"],
-                "structurePreserved": local_val["structurePreserved"],
-                "extraContentAdded": local_val["extraContentAdded"],
-                "removedContent": local_val["removedContent"],
-                "hallucinationDetected": local_val["hallucinationDetected"],
-                "confidenceScore": round((0.7 * local_val['semanticSimilarity']) + (0.3 * local_val['grammarScore']), 2),
-                "processingTime": round(elapsed, 3)
-            }
+        if not groq_manager.keys:
+            raise Exception("Groq API client inactive. Cannot paraphrase.")
 
         # Advanced AI Multi-Stage Pipeline with Automatic Regeneration Loop (Stage 4 & 5)
         best_result = None
         best_payload = {}
-        retries = 3
-        temperatures = [0.50, 0.25, 0.0]
+        retries = 1
+        temperatures = [0.50]
         feedback_prompt = ""
 
         for attempt in range(retries):
             try:
                 temp = temperatures[attempt % len(temperatures)]
-                raw_response = self._call_groq_llama(trimmed, mode, temperature=temp, feedback_prompt=feedback_prompt)
+                raw_response = await self._call_groq_llama(trimmed, mode, temperature=temp, feedback_prompt=feedback_prompt)
                 parsed = self._parse_json_response(raw_response)
                 
                 candidate_text = parsed.get("paraphrasedText", "").strip()
@@ -359,7 +326,7 @@ JSON Schema:
                     continue
                 
                 # Perform Programmatic Post-Validation
-                post_val = self._programmatic_post_validation(trimmed, candidate_text)
+                post_val = await asyncio.to_thread(self._programmatic_post_validation, trimmed, candidate_text)
                 
                 # Merge parsed output from LLM with programmatic scores
                 semantic_sim = post_val["semanticSimilarity"]
@@ -431,29 +398,8 @@ JSON Schema:
             except Exception as e:
                 print(f"[ParaphraseEngine] Generation error on attempt {attempt + 1}: {e}")
 
-        # Fallback to local dynamic correctors if all retry attempts failed completely
         if not best_result or not best_payload:
-            print("[ParaphraseEngine] Llama pipeline failed or produced empty output. Engaging dynamic offline generator.")
-            sentences = self.preprocessor.segment_sentences(trimmed)
-            polished_sentences = []
-            for s in sentences:
-                corrected = self.grammar_engine.correct_grammar(s)
-                polished_sentences.append(corrected)
-            result = " ".join(polished_sentences).strip()
-            local_val = self._programmatic_post_validation(trimmed, result)
-            
-            best_payload = {
-                "paraphrasedText": result,
-                "semanticSimilarity": f"{round(local_val['semanticSimilarity'] * 100)}%",
-                "grammarScore": f"{round(local_val['grammarScore'] * 100)}%",
-                "readabilityScore": local_val["readabilityScore"],
-                "meaningPreserved": local_val["meaningPreserved"],
-                "structurePreserved": local_val["structurePreserved"],
-                "extraContentAdded": local_val["extraContentAdded"],
-                "removedContent": local_val["removedContent"],
-                "hallucinationDetected": local_val["hallucinationDetected"],
-                "confidenceScore": round((0.7 * local_val['semanticSimilarity']) + (0.3 * local_val['grammarScore']), 2)
-            }
+            raise Exception("Llama pipeline failed or produced empty output.")
 
         elapsed = time.time() - start_time
         best_payload["processingTime"] = round(elapsed, 3)
